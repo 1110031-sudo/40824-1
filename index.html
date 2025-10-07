@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>華麗音樂遊戲</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #1a202c;
+            color: #e2e8f0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+        }
+        canvas {
+            background: linear-gradient(135deg, #1f2937, #4b5563);
+            border-radius: 1.5rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.2), 0 4px 6px -2px rgba(0, 0, 0, 0.1);
+            cursor: pointer;
+            touch-action: none;
+            transition: box-shadow 0.3s ease-in-out;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1.5rem;
+            padding: 1.5rem;
+            background-color: #2d3748;
+            border-radius: 2rem;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.2);
+        }
+        .ui-panel {
+            display: flex;
+            justify-content: space-between;
+            width: 100%;
+            max-width: 600px;
+            padding: 1.25rem;
+            background-color: rgba(74, 85, 104, 0.7);
+            border-radius: 1rem;
+            font-weight: bold;
+            backdrop-filter: blur(5px);
+            transition: background-color 0.3s ease-in-out;
+        }
+        .ui-panel span {
+            font-size: 1.5rem;
+            text-shadow: 1px 1px 2px #000;
+        }
+        .message-box {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 2.5rem 4rem;
+            border-radius: 1.5rem;
+            text-align: center;
+            z-index: 10;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            gap: 1.5rem;
+            font-size: 2rem;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            animation: fadeIn 0.5s forwards;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translate(-50%, -50%) scale(0.9); }
+            to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+        }
+        .message-box button {
+            background-color: #48bb78;
+            color: white;
+            padding: 1rem 2rem;
+            border-radius: 0.75rem;
+            border: none;
+            cursor: pointer;
+            font-size: 1.25rem;
+            font-weight: bold;
+            transition: transform 0.2s, background-color 0.3s, box-shadow 0.3s;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .message-box button:hover {
+            background-color: #38a169;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 8px rgba(0, 0, 0, 0.15);
+        }
+        .message-box button:active {
+            transform: translateY(1px);
+        }
+        .floating-score {
+            position: absolute;
+            color: #68d391;
+            font-size: 2.5rem;
+            font-weight: bold;
+            pointer-events: none;
+            animation: fadeOutUp 1s forwards;
+            text-shadow: 0 0 8px #48bb78;
+        }
+        @keyframes fadeOutUp {
+            from {
+                opacity: 1;
+                transform: translateY(0);
+            }
+            to {
+                opacity: 0;
+                transform: translateY(-70px);
+            }
+        }
+        .glow-effect {
+            position: absolute;
+            background-color: #4299e1;
+            border-radius: 50%;
+            opacity: 0;
+            animation: glow 0.5s forwards;
+        }
+        @keyframes glow {
+            from {
+                transform: scale(0);
+                opacity: 0.8;
+            }
+            to {
+                transform: scale(1.5);
+                opacity: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="ui-panel">
+        <span>分數: <span id="score">0</span></span>
+        <span>Combo: <span id="combo">0</span></span>
+        <span>時間: <span id="timer">60</span></span>
+    </div>
+    <canvas id="gameCanvas"></canvas>
+    <div id="messageBox" class="message-box"></div>
+</div>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const scoreElement = document.getElementById('score');
+    const comboElement = document.getElementById('combo');
+    const timerElement = document.getElementById('timer');
+    const messageBox = document.getElementById('messageBox');
+
+    let score = 0;
+    let combo = 0;
+    let circles = [];
+    let isPlaying = false;
+    let lastCircleTime = 0;
+    let gameStartTime = 0;
+    let gameTimer = 60;
+    let timerIntervalId;
+
+    let BPM = 120;
+    let hitTolerance = 25;
+    let beatInterval;
+    let speed;
+
+    const targetRadius = 150;
+    const maxRadius = 300;
+
+    const difficulties = {
+        'easy': { bpm: 90, tolerance: 35, scoreMultiplier: 1.0 },
+        'normal': { bpm: 120, tolerance: 25, scoreMultiplier: 1.2 },
+        'hard': { bpm: 150, tolerance: 15, scoreMultiplier: 1.5 }
+    };
+    
+    // 定義一個顏色陣列
+    const colors = ['#f56565', '#ed8936', '#ecc94b', '#48bb78', '#4299e1', '#9f7aea', '#ed64a6'];
+
+    function resizeCanvas() {
+        const size = Math.min(window.innerWidth, window.innerHeight, 600) - 60;
+        canvas.width = size;
+        canvas.height = size;
+    }
+    window.addEventListener('resize', resizeCanvas);
+    window.addEventListener('load', () => {
+        resizeCanvas();
+        showDifficultySelection();
+    });
+
+    function showMessage(text, callback, buttons = []) {
+        messageBox.innerHTML = `<p>${text}</p>`;
+        if (buttons.length > 0) {
+            buttons.forEach(button => {
+                const btn = document.createElement('button');
+                btn.textContent = button.text;
+                btn.onclick = () => {
+                    messageBox.style.display = 'none';
+                    if (button.callback) button.callback();
+                };
+                messageBox.appendChild(btn);
+            });
+        } else {
+            messageBox.onclick = () => {
+                messageBox.style.display = 'none';
+                if (callback) callback();
+            };
+        }
+        messageBox.style.display = 'flex';
+    }
+
+    function showDifficultySelection() {
+        showMessage("請選擇難度", null, [
+            { text: "簡單", callback: () => startGame('easy') },
+            { text: "普通", callback: () => startGame('normal') },
+            { text: "困難", callback: () => startGame('hard') }
+        ]);
+    }
+
+    function startGame(difficulty) {
+        if (isPlaying) return;
+        isPlaying = true;
+        
+        const difficultySettings = difficulties[difficulty];
+        BPM = difficultySettings.bpm;
+        hitTolerance = difficultySettings.tolerance;
+        scoreMultiplier = difficultySettings.scoreMultiplier;
+
+        beatInterval = 60000 / BPM;
+        speed = (maxRadius - targetRadius) / (beatInterval / 1000);
+
+        score = 0;
+        combo = 0;
+        circles = [];
+        lastCircleTime = performance.now();
+        gameStartTime = performance.now();
+        gameTimer = 60;
+        updateUI();
+
+        timerIntervalId = setInterval(() => {
+            gameTimer--;
+            updateUI();
+            if (gameTimer <= 0) {
+                endGame();
+            }
+        }, 1000);
+
+        gameLoop();
+    }
+
+    function endGame() {
+        isPlaying = false;
+        clearInterval(timerIntervalId);
+        showMessage(`遊戲結束！你的分數是: ${Math.round(score)}`, null, [
+            { text: "重新開始", callback: showDifficultySelection }
+        ]);
+    }
+
+    function updateUI() {
+        scoreElement.textContent = Math.round(score);
+        comboElement.textContent = combo;
+        timerElement.textContent = gameTimer;
+    }
+
+    function drawCircle(x, y, radius, color) {
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, 2 * Math.PI);
+        ctx.fillStyle = color;
+        ctx.fill();
+    }
+
+    function drawOutline(x, y, radius) {
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, 2 * Math.PI);
+        ctx.strokeStyle = '#e2e8f0';
+        ctx.lineWidth = 4;
+        ctx.stroke();
+    }
+
+    function gameLoop(currentTime) {
+        if (!isPlaying) return;
+
+        const delta = currentTime - gameStartTime;
+        const elapsedSinceLastCircle = currentTime - lastCircleTime;
+
+        if (elapsedSinceLastCircle >= beatInterval) {
+            const randomColor = colors[Math.floor(Math.random() * colors.length)];
+            circles.push({
+                x: canvas.width / 2,
+                y: canvas.height / 2,
+                radius: 0,
+                speed: speed,
+                color: randomColor
+            });
+            lastCircleTime = currentTime;
+        }
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+        gradient.addColorStop(0, '#1f2937');
+        gradient.addColorStop(1, '#4b5563');
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        drawOutline(canvas.width / 2, canvas.height / 2, targetRadius);
+
+        circles.forEach((circle, index) => {
+            circle.radius += circle.speed * (1 / 60);
+
+            if (circle.radius > maxRadius) {
+                circles.splice(index, 1);
+                score -= 20;
+                combo = 0;
+                updateUI();
+            }
+
+            const alpha = 1 - (circle.radius / maxRadius);
+            ctx.globalAlpha = alpha;
+            drawCircle(circle.x, circle.y, circle.radius, circle.color);
+        });
+        ctx.globalAlpha = 1;
+
+        requestAnimationFrame(gameLoop);
+    }
+
+    function showFloatingScore(x, y, points) {
+        const scoreSpan = document.createElement('span');
+        scoreSpan.textContent = `+${Math.round(points)}`;
+        scoreSpan.className = 'floating-score';
+        scoreSpan.style.left = `${x}px`;
+        scoreSpan.style.top = `${y}px`;
+        document.body.appendChild(scoreSpan);
+        
+        setTimeout(() => {
+            scoreSpan.remove();
+        }, 1000);
+    }
+
+    function createGlowEffect(x, y, color) {
+        const glowDiv = document.createElement('div');
+        glowDiv.className = 'glow-effect';
+        glowDiv.style.left = `${x}px`;
+        glowDiv.style.top = `${y}px`;
+        glowDiv.style.backgroundColor = color;
+        document.body.appendChild(glowDiv);
+        setTimeout(() => {
+            glowDiv.remove();
+        }, 500);
+    }
+
+    canvas.addEventListener('mousedown', handleInteraction);
+    canvas.addEventListener('touchstart', handleInteraction);
+
+    function handleInteraction(event) {
+        if (!isPlaying) return;
+        event.preventDefault();
+
+        const rect = canvas.getBoundingClientRect();
+        const clientX = event.clientX || event.touches[0].clientX;
+        const clientY = event.clientY || event.touches[0].clientY;
+        const clickX = clientX - rect.left;
+        const clickY = clientY - rect.top;
+
+        const hitIndex = circles.findIndex(circle => {
+            const distFromCenter = Math.sqrt(Math.pow(clickX - circle.x, 2) + Math.pow(clickY - circle.y, 2));
+            const distance = Math.abs(distFromCenter - targetRadius);
+            return distance <= hitTolerance;
+        });
+
+        if (hitIndex !== -1) {
+            const hitCircle = circles[hitIndex];
+            const distance = Math.abs(hitCircle.radius - targetRadius);
+            circles.splice(hitIndex, 1);
+            
+            createGlowEffect(clientX, clientY, hitCircle.color);
+
+            let points = 0;
+            if (distance <= 5) {
+                points = 150;
+            } else if (distance <= 15) {
+                points = 75;
+            } else {
+                points = 30;
+            }
+            points = (points + combo * 10) * scoreMultiplier;
+            score += points;
+            combo++;
+            showFloatingScore(clientX, clientY, points);
+        } else {
+            score -= 20;
+            combo = 0;
+        }
+        updateUI();
+    }
+</script>
+
+</body>
+</html>
